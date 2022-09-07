@@ -26,39 +26,7 @@ from transformers import (
     PretrainedConfig,
     __version__,
 )
-from oslo.torch.optim import ZeroRedundancyOptimizer
-from oslo.torch.nn.parallel.utils import allocate_params
-from oslo.torch.optim.sharded_grad_scaler import ShardedGradScaler
-from .data.data_collator import (
-    DataCollator,
-    DataCollatorWithPadding,
-    default_data_collator,
-)
-from .training_args import TrainingArguments
-from .trainer_utils import (
-    set_seed,
-    has_length,
-    EvalPrediction,
-    get_last_checkpoint,
-    TrainOutput,
-    speed_metrics,
-    unwrap_model,
-    PredictionOutput,
-    EvalLoopOutput,
-    denumpify_detensorize,
-    TrainerMemoryTracker,
-    PREFIX_CHECKPOINT_DIR,
-    OptimizerNames,
-)
-from .trainer_callback import (
-    CallbackHandler,
-    DefaultFlowCallback,
-    ProgressCallback,
-    TrainerCallback,
-    TrainerControl,
-    TrainerState,
-)
-from .trainer_pt_utils import (
+from transformers.trainer_pt_utils import (
     LabelSmoother,
     IterableDatasetShard,
     ShardSampler,
@@ -73,6 +41,37 @@ from .trainer_pt_utils import (
     DistributedLengthGroupedSampler,
     get_parameter_names,
 )
+from transformers.utils import (
+    logging,
+    find_labels,
+)
+from transformers.trainer_utils import (
+    set_seed,
+    has_length,
+    EvalPrediction,
+    get_last_checkpoint,
+    TrainOutput,
+    speed_metrics,
+
+    PredictionOutput,
+    EvalLoopOutput,
+    denumpify_detensorize,
+    TrainerMemoryTracker,
+    PREFIX_CHECKPOINT_DIR,
+
+)
+from transformers.trainer_callback import (
+    CallbackHandler,
+    DefaultFlowCallback,
+    ProgressCallback,
+    TrainerCallback,
+    TrainerControl,
+    TrainerState,
+)
+from transformers.integrations import get_reporting_integration_callbacks
+from oslo.torch.optim import ZeroRedundancyOptimizer
+from oslo.torch.nn.parallel.utils import allocate_params
+from oslo.torch.optim.sharded_grad_scaler import ShardedGradScaler
 from oslo.torch.nn.parallel import (
     PipelineParallel,
     TensorParallel,
@@ -81,11 +80,15 @@ from oslo.torch.nn.parallel import (
     DistributedDataParallel,
     SequenceDataParallel,
 )
-
-from .integrations import get_reporting_integration_callbacks  # isort: split
-from .utils import (
-    logging,
-    find_labels,
+from .data.data_collator import (
+    DataCollator,
+    DataCollatorWithPadding,
+    default_data_collator,
+)
+from .training_args import TrainingArguments
+from .trainer_utils import (
+    unwrap_model,
+    OptimizerNames,
 )
 
 if version.parse(torch.__version__) >= version.parse("1.6"):

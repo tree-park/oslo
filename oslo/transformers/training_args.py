@@ -7,13 +7,14 @@ from dataclasses import asdict, dataclass, field
 from typing import Any, Dict, List, Optional, Union
 import torch
 import torch.distributed as dist
-from .utils import (
+from transformers.utils import (
     cached_property,
     logging,
     is_torch_tf32_available,
     is_torch_bf16_available,
 )
-from .trainer_utils import IntervalStrategy, SchedulerType, OptimizerNames
+from transformers.trainer_utils import IntervalStrategy, SchedulerType
+from .trainer_utils import OptimizerNames
 
 logger = logging.get_logger(__name__)
 log_levels = logging.get_log_levels_dict().copy()
@@ -759,7 +760,7 @@ class TrainingArguments:
             self.report_to = ["none"]
         if self.report_to == "all" or self.report_to == ["all"]:
             # Import at runtime to avoid a circular import.
-            from .integrations import get_available_reporting_integrations
+            from transformers.integrations import get_available_reporting_integrations
 
             self.report_to = get_available_reporting_integrations()
         elif self.report_to == "none" or self.report_to == ["none"]:
