@@ -11,7 +11,10 @@ from oslo.torch.nn.parallel import (
     ShardedDataParallel,
     FullyShardedDataParallel,
     DistributedDataParallel,
+    SequenceDataParallel
 )
+from oslo.torch.distributed.parallel_mode import ParallelMode
+
 
 NoneType = type(None)
 
@@ -84,6 +87,14 @@ DATA_PARALLEL_CONFIGS_BY_ZERO_STAGE = {
     3: _dp_config("fsdp", "oss"),
 }
 
+TENSOR_PARALLEL_MAPPING = {
+    "1d": ParallelMode.TENSOR_1D,
+    "2d": ParallelMode.TENSOR_2D,
+    "3d": ParallelMode.TENSOR_3D,
+    "2.5d": ParallelMode.TENSOR_2P5D,
+}
+
+
 SUPPORTED_FEATURES = {
     "mixed_precision": {
         "enable": _type(bool),
@@ -113,7 +124,7 @@ SUPPORTED_FEATURES = {
     "tensor_parallelism": {
         "enable": _type(bool),
         "parallel_size": _type(int),
-        "parallel_mode": _values("1d", "2d", "2.5d", "3d"),
+        "parallel_mode": _values(*TENSOR_PARALLEL_MAPPING.keys()),
         "params": {
             "parallel_depth_2.5d": _type(int),
         },
@@ -172,7 +183,11 @@ class Config:
 
     def __init__(self, **entries):
         self.__dict__.update(entries)
+        # print("Start==================================")
+        # print("self:", self)
+        # print("self.__dict__: ", self.__dict__)
         self.mkconfig(self)
+        # print("End==================================")
 
     @staticmethod
     def mkconfig(obj):
@@ -180,11 +195,19 @@ class Config:
             if isinstance(v, dict):
                 obj.__setattr__(k, Config(**v))
 
-    def __getitem__(self, item):
+    def is_exist(self, item):
         if item not in self.__dict__:
+            return False
+        return True
+
+    def __getitem__(self, item):
+        # print("__getitem__", item)
+        if not self.is_exist(item):
+            if item == "params":
+                return {}
             return None
         else:
-            getattr(self, item)
+            return getattr(self, item)
 
     def __repr__(self):
         return str(self.__dict__.items())
@@ -261,7 +284,8 @@ class OsloTrainerConfig(Config):
     def __init__(self, config_file_or_dict):
         super(OsloTrainerConfig, self).__init__()
         self.cpu_offload = False
-
+        # print("config_file_or_dict: ", config_file_or_dict)
+        # print("self.__dict__.items(): ", str(self.__dict__.items()))
         if isinstance(config_file_or_dict, dict):
             # Don't modify user's data should they want to reuse it (e.g. in tests), because once we
             # modified it, it will not be accepted here again, since `auto` values would have been overridden
@@ -274,14 +298,16 @@ class OsloTrainerConfig(Config):
                 "expecting either a path to a oslo config file or a dict")
         _config_check(SUPPORTED_FEATURES, cfg)
         super(OsloTrainerConfig, self).__init__(**cfg)
-
+        # print("self.__dict__.items(): ", str(self.__dict__.items()))
         logging.info("*** OSLO CONFIG ***")
-        if not all([self['mixed_precision'], self.mixed_precision["enable"]]):
+        if not self.is_exist('mixed_precision') or not self.mixed_precision["enable"]:
             self.mixed_precision = None
         else:
             logging.info("mixed_precision: enabled")
-
-        if not all([self['data_parallelism'], self.data_parallelism["enable"]]):
+        # print("self.data_parallelism:", self.data_parallelism)
+        # print("self.data_parallelism:", self.data_parallelism.__dict__)
+        # print("self.data_parallelism:", self.data_parallelism.parallel_size)
+        if not self.is_exist('data_parallelism') or not self.data_parallelism["enable"]:
             self.data_parallelism = None
         else:
             if self.data_parallelism['parallel_size'] is None:
@@ -302,7 +328,7 @@ class OsloTrainerConfig(Config):
                 if hasattr(self.data_parallelism, 'params') and self.data_parallelism.params['cpu_offload']:
                     self.cpu_offload = True
 
-        if not all([self['sequence_parallelism'], self.sequence_parallelism["enable"]]):
+        if not self.is_exist('sequence_parallelism') or not self.sequence_parallelism["enable"]:
             self.sequence_parallelism = None
         else:
             if self.sequence_parallelism['parallel_size'] is None:
@@ -315,8 +341,7 @@ class OsloTrainerConfig(Config):
                     f"sequence_parallelism: enabled\n\tparallel_size: {self.sequence_parallelism['parallel_size']}"
                 )
 
-        if not all(
-            [self['tensor_parallelism'], self.tensor_parallelism["enable"]]):
+        if not self.is_exist('tensor_parallelism') or not self.tensor_parallelism["enable"]:
             self.tensor_parallelism = None
         else:
             if self.tensor_parallelism['parallel_size'] is None:
@@ -334,9 +359,7 @@ class OsloTrainerConfig(Config):
                     f"tensor_parallelism: enabled\n\tparallel_size: {self.tensor_parallelism['parallel_size']}\n\tparallel_mode: {self.tensor_parallelism['parallel_mode']}"
                 )
 
-        if not all(
-            [self['pipeline_parallelism'], self.pipeline_parallelism["enable"]
-            ]):
+        if not self.is_exist('pipeline_parallelism') or not self.pipeline_parallelism["enable"]:
             self.pipeline_parallelism = None
         else:
             if self.pipeline_parallelism['parallel_size'] is None:
@@ -349,8 +372,7 @@ class OsloTrainerConfig(Config):
                     f"pipeline_parallelism: enabled\n\tparallel_size: {self.pipeline_parallelism['parallel_size']}"
                 )
 
-        if not all(
-            [self['expert_parallelism'], self.expert_parallelism["enable"]]):
+        if not self.is_exist('expert_parallelism') or not self.expert_parallelism["enable"]:
             self.expert_parallelism = None
         else:
             if self.expert_parallelism['parallel_size'] is None:
@@ -362,6 +384,7 @@ class OsloTrainerConfig(Config):
                 logging.info(
                     f"expert_parallelism: enabled\n\tparallel_size: {self.expert_parallelism['parallel_size']}"
                 )
+        # print(str(self.__dict__.items()))
 
 
 def init_oslo_features(
@@ -378,13 +401,17 @@ def init_oslo_features(
     >> wrapper_model = TensorParallel(model, parallel_context)
     >> allocate_params(wrapper_model, parallel_context)
     """
-
     cfg = oslo_init_config
     data_parallel_size = cfg.data_parallelism.parallel_size if cfg.data_parallelism else 1
     sequence_parallel_size = cfg.sequence_parallelism.parallel_size if cfg.sequence_parallelism else 1
     expert_parallel_size = cfg.expert_parallelism.parallel_size if cfg.expert_parallelism else 1
     pipeline_parallel_size = cfg.pipeline_parallelism.parallel_size if cfg.pipeline_parallelism else 1
-    tensor_parallel_size = cfg.tensor_parallelism.parallel_size if cfg.tensor_parallelism else 1
+    tensor_parallel_size, tensor_parallel_depth, tensor_parallel_mode = 1, 1, TENSOR_PARALLEL_MAPPING["1d"]
+    if cfg.tensor_parallelism:
+        tensor_parallel_size = cfg.tensor_parallelism.parallel_size
+        tensor_parallel_mode = TENSOR_PARALLEL_MAPPING[cfg.tensor_parallelism.parallel_mode]
+        if cfg.tensor_parallelism.is_exist('param'):
+            tensor_parallel_depth = cfg.tensor_parallelism.param['parallel_depth_2.5d']
 
     parallel_context = ParallelContext.from_torch(
         data_parallel_size=data_parallel_size,
@@ -392,8 +419,8 @@ def init_oslo_features(
         expert_parallel_size=expert_parallel_size,
         pipeline_parallel_size=pipeline_parallel_size,
         tensor_parallel_size=tensor_parallel_size,
-        tensor_parallel_depth=cfg.tensor_parallelism.param['parallel_depth_2.5d'] if cfg.tensor_parallelism['param'] else 1,
-        tensor_parallel_mode=cfg.tensor_parallelism.parallel_mode if cfg.tensor_parallelism else "1d"
+        tensor_parallel_depth=tensor_parallel_depth,
+        tensor_parallel_mode=tensor_parallel_mode
     )
 
     if tensor_parallel_size > 1 and sequence_parallel_size > 1:
@@ -402,6 +429,7 @@ def init_oslo_features(
         )
 
     model_wrapper = []
+
     if data_parallel_size > 1:
         if cfg.data_parallelism.zero_stage == 0:
             model_wrapper.append(DistributedDataParallel)
@@ -418,6 +446,8 @@ def init_oslo_features(
             model_wrapper.append(DistributedDataParallel)
     if tensor_parallel_size > 1:
         model_wrapper.append(TensorParallel)
+    if sequence_parallel_size > 1:
+        model_wrapper.append(SequenceDataParallel)
     if pipeline_parallel_size > 1:
         model_wrapper.append(PipelineParallel)
     # TODO expert mode

@@ -467,6 +467,7 @@ class DistributedDataParallel(ParallelWrapper):
                 module_states.append(param)
 
         if len(module_states) > 0:
+
             self._distributed_broadcast_coalesced(
                 module_states, self.broadcast_bucket_size, authoritative_rank
             )

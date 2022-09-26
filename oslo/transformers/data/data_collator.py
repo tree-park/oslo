@@ -5,8 +5,7 @@ from dataclasses import dataclass
 from transformers import PreTrainedTokenizerBase
 
 
-# from ..tokenization_utils_base import PreTrainedTokenizerBase
-from ..utils import PaddingStrategy
+from transformers.utils import PaddingStrategy
 
 InputDataClass = NewType("InputDataClass", Any)
 DataCollator = NewType("DataCollator", Callable[[List[InputDataClass]], Dict[str, Any]])

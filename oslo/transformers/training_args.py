@@ -3,22 +3,23 @@ import json
 import math
 import os
 from enum import Enum
+import logging
 from dataclasses import asdict, dataclass, field
 from typing import Any, Dict, List, Optional, Union
 import torch
 import torch.distributed as dist
 from transformers.utils import (
     cached_property,
-    logging,
+    # logging,
     is_torch_tf32_available,
     is_torch_bf16_available,
 )
 from transformers.trainer_utils import IntervalStrategy, SchedulerType
 from .trainer_utils import OptimizerNames
 
-logger = logging.get_logger(__name__)
-log_levels = logging.get_log_levels_dict().copy()
-trainer_log_levels = dict(**log_levels, passive=-1)
+# logger = logging.get_logger()
+# log_levels = logging.get_log_levels_dict().copy()
+# trainer_log_levels = dict(**log_levels, passive=-1)
 
 
 def default_logdir() -> str:
@@ -48,6 +49,7 @@ class TrainingArguments:
         overwrite_output_dir (`bool`, *optional*, defaults to `False`):
             If `True`, overwrite the content of the output directory. Use this to continue training if `output_dir`
             points to a checkpoint directory.
+        # TODO make do_* directly used by [`Trainer`]
         do_train (`bool`, *optional*, defaults to `False`):
             Whether to run training or not. This argument is not directly used by [`Trainer`], it's intended to be used
             by your training/evaluation scripts instead. See the [example
@@ -118,7 +120,7 @@ class TrainingArguments:
             Ratio of total training steps used for a linear warmup from 0 to `learning_rate`.
         warmup_steps (`int`, *optional*, defaults to 0):
             Number of steps used for a linear warmup from 0 to `learning_rate`. Overrides any effect of `warmup_ratio`.
-        log_level (`str`, *optional*, defaults to `passive`):
+        logging (`str`, *optional*, defaults to `passive`):
             Logger log level to use on the main process. Possible choices are the log levels as strings: 'debug',
             'info', 'warning', 'error' and 'critical', plus a 'passive' level which doesn't set anything and lets the
             application set the level.
@@ -430,14 +432,14 @@ class TrainingArguments:
         default="passive",
         metadata={
             "help": "Logger log level to use on the main node. Possible choices are the log levels as strings: 'debug', 'info', 'warning', 'error' and 'critical', plus a 'passive' level which doesn't set anything and lets the application set the level. Defaults to 'passive'.",
-            "choices": trainer_log_levels.keys(),
+            # "choices": trainer_log_levels.keys(),
         },
     )
     log_level_replica: Optional[str] = field(
         default="passive",
         metadata={
             "help": "Logger log level to use on replica nodes. Same choices and defaults as ``log_level``",
-            "choices": trainer_log_levels.keys(),
+            # "choices": trainer_log_levels.keys(),
         },
     )
     log_on_each_node: bool = field(
@@ -670,8 +672,8 @@ class TrainingArguments:
             self.local_rank = env_local_rank
 
         # convert to int
-        self.log_level = trainer_log_levels[self.log_level]
-        self.log_level_replica = trainer_log_levels[self.log_level_replica]
+        # self.log_level = trainer_log_levels[self.log_level]
+        # self.log_level_replica = trainer_log_levels[self.log_level_replica]
 
         # expand paths, if not os.makedirs("~/bar") will make directory
         # in the current directory instead of the actual home
@@ -695,7 +697,7 @@ class TrainingArguments:
             self.eval_steps is None or self.eval_steps == 0
         ):
             if self.logging_steps > 0:
-                logger.info(
+                logging.info(
                     f"using `logging_steps` to initialize `eval_steps` to {self.logging_steps}"
                 )
                 self.eval_steps = self.logging_steps
@@ -771,7 +773,7 @@ class TrainingArguments:
         if self.warmup_ratio < 0 or self.warmup_ratio > 1:
             raise ValueError("warmup_ratio must lie in range [0,1]")
         elif self.warmup_ratio > 0 and self.warmup_steps > 0:
-            logger.info(
+            logging.info(
                 "Both warmup_ratio and warmup_steps given, warmup_steps will override any effect of warmup_ratio during training"
             )
 
@@ -779,14 +781,17 @@ class TrainingArguments:
         # if isinstance(self.debug, str):
         #     self.debug = [DebugOption(s) for s in self.debug.split()]
         self.oslo_config, self.parallel_context, self.model_wrappers = None, None, None
+
         if self.oslo_config_path_or_dict:
             from oslo.transformers.oslo_init import OsloTrainerConfig
             from .oslo_init import init_oslo_features
             # will be used later by the Trainer
             self.oslo_config = OsloTrainerConfig(self.oslo_config_path_or_dict)
+            # logging.info(f"Oslo Config: {self.oslo_config}")
             self.parallel_context, self.model_wrappers = init_oslo_features(
                 self.oslo_config
             )
+            # logging.info(f"{'  '.join([str(cn) for cn in self.model_wrappers])}")
 
     def __str__(self):
         self_as_dict = asdict(self)
@@ -824,13 +829,13 @@ class TrainingArguments:
 
     @cached_property
     def _setup_devices(self) -> "torch.device":
-        logger.info("PyTorch: setting up devices")
+        logging.info("PyTorch: setting up devices")
         if (
             torch.distributed.is_available()
             and torch.distributed.is_initialized()
             and self.local_rank == -1
         ):
-            logger.warning(
+            logging.warning(
                 "torch.distributed process group is initialized, but local_rank == -1. "
                 "In order to use Torch DDP, launch your script with `python -m torch.distributed.launch"
             )
@@ -981,7 +986,7 @@ class TrainingArguments:
             try:
                 if not is_main_process:
                     # tell all replicas to wait
-                    logger.debug(
+                    logging.debug(
                         f"{self.process_index}: waiting for the {main_process_desc} to perform {desc}"
                     )
                     torch.distributed.barrier()
@@ -989,7 +994,7 @@ class TrainingArguments:
             finally:
                 if is_main_process:
                     # the wait is over
-                    logger.debug(
+                    logging.debug(
                         f"{self.process_index}: {main_process_desc} completed {desc}, releasing all replicas"
                     )
                     torch.distributed.barrier()

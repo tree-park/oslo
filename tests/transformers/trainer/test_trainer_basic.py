@@ -8,6 +8,8 @@ from oslo.transformers.tasks.data_sequence_classification import (
     ProcessorForSequenceClassification,
     DataCollatorForSequenceClassification,
 )
+import logging
+logging.basicConfig(level=logging.INFO)
 
 model = BertForSequenceClassification.from_pretrained("bert-base-uncased")
 tokenizer = BertTokenizer.from_pretrained("bert-base-uncased")
@@ -28,7 +30,6 @@ train_dataset = processed_dataset["train"]
 valid_dataset = processed_dataset["validation"]
 
 data_collator = DataCollatorForSequenceClassification(processor)
-
 
 args = TrainingArguments(
     output_dir="output",

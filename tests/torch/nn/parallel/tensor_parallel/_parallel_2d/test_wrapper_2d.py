@@ -10,6 +10,8 @@ from oslo.torch.nn.parallel.tensor_parallel import TensorParallel
 from oslo.torch.nn.parallel.utils import allocate_params
 from oslo.torch.distributed import ParallelContext, ParallelMode
 
+from oslo.torch.optim import FusedAdam
+
 tp_size = 4
 batch_size = 16
 model_name = "gpt2"
@@ -41,8 +43,8 @@ if dist.get_rank() == 0:
     print(wrapper_tp)
 
 # 옵티마이저 생성
-optimizer_tp = Adam(wrapper_tp.parameters(), lr=3e-5)
-optimizer_no_tp = Adam(model_no_tp.parameters(), lr=3e-5)
+optimizer_tp = FusedAdam(wrapper_tp.parameters(), lr=3e-5)
+optimizer_no_tp = FusedAdam(model_no_tp.parameters(), lr=3e-5)
 
 # 데이터셋 생성
 datasets = load_dataset("squad").data["train"]["context"]

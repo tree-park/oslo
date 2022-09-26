@@ -6,6 +6,7 @@ import random
 import re
 import shutil
 import sys
+import logging
 import time
 import warnings
 from collections.abc import Mapping
@@ -42,7 +43,6 @@ from transformers.trainer_pt_utils import (
     get_parameter_names,
 )
 from transformers.utils import (
-    logging,
     find_labels,
 )
 from transformers.trainer_utils import (
@@ -99,7 +99,7 @@ if version.parse(torch.__version__) >= version.parse("1.6"):
 if TYPE_CHECKING:
     import optuna
 
-logger = logging.get_logger(__name__)
+# logger = logging.get_logger(__name__)
 
 # Name of the files used for checkpointing
 TRAINING_ARGS_NAME = "training_args.bin"
@@ -132,13 +132,13 @@ class Trainer:
         if args is None:
             # No Arguments passed
             output_dir = "tmp_trainer"
-            logger.info(
+            logging.info(
                 f"No `TrainingArguments` passed, using `output_dir={output_dir}`."
             )
             args = TrainingArguments(output_dir=output_dir)
 
         self.args = args
-        set_seed(self.args.seed)
+        # set_seed(self.args.seed)
         self.hp_name = None
         self.is_in_train = False
         self.optimizer = None
@@ -150,20 +150,12 @@ class Trainer:
 
         self.is_in_train = False
 
-        # set log level
-        log_level = args.get_process_log_level()
-        logging.set_verbosity(log_level)
+        # # set log level
+        # log_level = args.get_process_log_level()
+        # logging.set_verbosity(log_level)
 
-        # force device and distributed setup init explicitly
+        # # force device and distributed setup init explicitly
         # args._setup_devices
-        if (
-            hasattr(model, "is_parallelizable")
-            and model.is_parallelizable
-            and model.model_parallel
-        ):
-            self.is_model_parallel = True
-        else:
-            self.is_model_parallel = False
 
         self.parallel_context = None
         self.model_wrappers = []
@@ -173,20 +165,6 @@ class Trainer:
                 args.model_wrappers,
             )
 
-        # one place to sort out whether to place the model on device or not
-        # postpone switching model to cuda when:
-        # 1. MP - since we are trying to fit a much bigger than 1 gpu model
-        # 2. fp16-enabled DeepSpeed loads the model in half the size and it doesn't need .to() anyway,
-        #    and we only use deepspeed for training at the moment
-        # 3. full bf16 or fp16 eval - since the model needs to be cast to the right dtype first
-        # 4. Sharded DDP - same as MP
-        self.place_model_on_device = True
-        if (
-            self.is_model_parallel
-            or args.oslo_config
-            or ((args.fp16_full_eval or args.bf16_full_eval) and not args.do_train)
-        ):
-            self.place_model_on_device = False
 
         default_collator = (
             default_data_collator
@@ -200,8 +178,6 @@ class Trainer:
         self.eval_dataset = eval_dataset
         self.tokenizer = tokenizer
 
-        if self.place_model_on_device:
-            self._move_model_to_device(model, args.device)
 
         # later use `self.model is self.model_wrapped` to check if it's wrapped or not
         self.model_wrapped = model
@@ -237,7 +213,7 @@ class Trainer:
             )
 
         if args.max_steps > 0:
-            logger.info(
+            logging.info(
                 "max_steps is given, it will override any value given in num_train_epochs"
             )
 
@@ -268,7 +244,7 @@ class Trainer:
                     raise ValueError(
                         "Tried to use `fp16` but native amp is not available"
                     )
-            logger.info(f"Using {args.half_precision_backend} half precision backend")
+            logging.info(f"Using {args.half_precision_backend} half precision backend")
 
         self.do_grad_scaling = False
         if args.fp16 or args.bf16:
@@ -404,6 +380,7 @@ class Trainer:
         model = self._wrap_model(self.model_wrappers)
         if model is not self.model:
             self.model_wrapped = model
+            self.model = model
 
         if delay_optimizer_creation:
             self.create_optimizer_and_scheduler(num_training_steps=max_steps)
@@ -412,19 +389,19 @@ class Trainer:
         self._load_optimizer_and_scheduler(resume_from_checkpoint)
 
         # Train!
-        logger.info("***** Running training *****")
-        logger.info(f"  Num examples = {num_examples}")
-        logger.info(f"  Num Epochs = {num_train_epochs}")
-        logger.info(
+        logging.info("***** Running training *****")
+        logging.info(f"  Num examples = {num_examples}")
+        logging.info(f"  Num Epochs = {num_train_epochs}")
+        logging.info(
             f"  Instantaneous batch size per device = {args.per_device_train_batch_size}"
         )
-        logger.info(
+        logging.info(
             f"  Total train batch size (w. parallel, distributed & accumulation) = {total_train_batch_size}"
         )
-        logger.info(
+        logging.info(
             f"  Gradient Accumulation steps = {args.gradient_accumulation_steps}"
         )
-        logger.info(f"  Total optimization steps = {max_steps}")
+        logging.info(f"  Total optimization steps = {max_steps}")
 
         self.state.epoch = 0
         start_time = time.time()
@@ -448,15 +425,15 @@ class Trainer:
             else:
                 steps_trained_in_current_epoch = 0
 
-            logger.info(
+            logging.info(
                 "  Continuing training from checkpoint, will skip to saved global_step"
             )
-            logger.info(f"  Continuing training from epoch {epochs_trained}")
-            logger.info(
+            logging.info(f"  Continuing training from epoch {epochs_trained}")
+            logging.info(
                 f"  Continuing training from global step {self.state.global_step}"
             )
             if not args.ignore_data_skip:
-                logger.info(
+                logging.info(
                     f"  Will skip the first {epochs_trained} epochs then the first {steps_trained_in_current_epoch} "
                     "batches in the first epoch. If this takes a lot of time, you can add the `--ignore_data_skip` "
                     "flag to your launch command, but you will resume the training on data already seen by your model."
@@ -496,7 +473,7 @@ class Trainer:
         self.control = self.callback_handler.on_train_begin(
             args, self.state, self.control
         )
-
+        print("=========================", 1)
         if not args.ignore_data_skip:
             for epoch in range(epochs_trained):
                 is_random_sampler = hasattr(train_dataloader, "sampler") and isinstance(
@@ -516,6 +493,7 @@ class Trainer:
                     _ = list(train_dataloader.sampler)
 
         for epoch in range(epochs_trained, num_train_epochs):
+            print("=========================", 2)
             if isinstance(train_dataloader, DataLoader) and isinstance(
                 train_dataloader.sampler, DistributedSampler
             ):
@@ -541,6 +519,7 @@ class Trainer:
             )
 
             for step, inputs in enumerate(epoch_iterator):
+                print("=========================", 3)
                 # Skip past any already trained steps if resuming training
                 if steps_trained_in_current_epoch > 0:
                     steps_trained_in_current_epoch -= 1
@@ -555,9 +534,11 @@ class Trainer:
 
                 # Start step begin
                 if step % args.gradient_accumulation_steps == 0:
+                    print("=========================", 4)
                     self.control = self.callback_handler.on_step_begin(
                         args, self.state, self.control
                     )
+                    print("=========================", 5)
 
                 if (
                     ((step + 1) % args.gradient_accumulation_steps != 0)
@@ -565,11 +546,13 @@ class Trainer:
                     and args._no_sync_in_gradient_accumulation
                 ):
                     # Avoid unnecessary DDP synchronization since there will be no backward pass on this example.
+                    print("=========================", 5.1)
                     with model.no_sync():
                         tr_loss_step = self.training_step(model, inputs)
                 else:
+                    print("=========================", 5.2)
                     tr_loss_step = self.training_step(model, inputs)
-
+                print("=========================", 6)
                 if args.logging_nan_inf_filter and (
                     torch.isnan(tr_loss_step) or torch.isinf(tr_loss_step)
                 ):
@@ -635,7 +618,7 @@ class Trainer:
                     break
 
                 if step < 0:
-                    logger.warning(
+                    logging.warning(
                         f"There seems to be not a single sample in your epoch_iterator, stopping training at step"
                         f" {self.state.global_step}! This is expected if you're using an IterableDataset and set"
                         f" num_steps ({max_steps}) higher than the number of available samples."
@@ -656,7 +639,7 @@ class Trainer:
             # Clean the state at the end of training
             delattr(self, "_past")
 
-        logger.info("\n\nTraining completed.\n\n")
+        logging.info("\n\nTraining completed.\n\n")
         if args.load_best_model_at_end and self.state.best_model_checkpoint is not None:
             # Wait for everyone to get here so we are sure the model has been saved by process 0.
             if args.local_rank != -1:
@@ -871,12 +854,12 @@ class Trainer:
 
         batch_size = self.args.eval_batch_size
 
-        logger.info(f"***** Running {description} *****")
+        logging.info(f"***** Running {description} *****")
         if has_length(dataloader):
-            logger.info(f"  Num examples = {self.num_examples(dataloader)}")
+            logging.info(f"  Num examples = {self.num_examples(dataloader)}")
         else:
-            logger.info("  Num examples: Unknown")
-        logger.info(f"  Batch size = {batch_size}")
+            logging.info("  Num examples: Unknown")
+        logging.info(f"  Batch size = {batch_size}")
 
         model.eval()
 
@@ -1256,7 +1239,7 @@ class Trainer:
         """
         opt_model = self.model_wrapped
 
-        if self.parallel_context or self.optimizer is None:
+        if self.optimizer is None:
             decay_parameters = get_parameter_names(opt_model, [nn.LayerNorm])
             decay_parameters = [name for name in decay_parameters if "bias" not in name]
             optimizer_grouped_parameters = [
@@ -1281,9 +1264,7 @@ class Trainer:
             optimizer_cls, optimizer_kwargs = Trainer.get_optimizer_cls_and_kwargs(
                 self.args
             )
-            if (
-                hasattr(self.args.oslo_config, "data_parallelism")
-            ):
+            if self.args.oslo_config and self.args.oslo_config["data_parallelism"]:
                 self.optimizer = ZeroRedundancyOptimizer(
                     parallel_context=self.parallel_context,
                     params=opt_model.parameters(),
@@ -1295,7 +1276,7 @@ class Trainer:
                 self.optimizer = optimizer_cls(
                     opt_model.parameters(), **optimizer_kwargs
                 )
-
+        logging.info(f"Optimizer: {self.optimizer}")
         return self.optimizer
 
     @staticmethod
@@ -1450,7 +1431,7 @@ class Trainer:
         if local_rank != -1:
             rng_file = os.path.join(checkpoint, f"rng_state_{local_rank}.pth")
             if not os.path.isfile(os.path.join(checkpoint, rng_file)):
-                logger.info(
+                logging.info(
                     f"Didn't find an RNG file for process {local_rank}, if you are resuming a training that "
                     "wasn't launched in a distributed fashion, reproducibility is not guaranteed."
                 )
@@ -1458,7 +1439,7 @@ class Trainer:
         else:
             rng_file = os.path.join(checkpoint, "rng_state.pth")
             if not os.path.isfile(rng_file):
-                logger.info(
+                logging.info(
                     "Didn't find an RNG file, if you are resuming a training that was launched in a distributed "
                     "fashion, reproducibility is not guaranteed."
                 )
@@ -1475,7 +1456,7 @@ class Trainer:
                 try:
                     torch.cuda.random.set_rng_state_all(checkpoint_rng_state["cuda"])
                 except Exception as e:
-                    logger.info(
+                    logging.info(
                         f"Didn't manage to set back the RNG states of the GPU because of the following error:\n {e}"
                         "\nThis won't yield the same results as if the training had not been interrupted."
                     )
@@ -1589,7 +1570,7 @@ class Trainer:
                 last_lr = self.lr_scheduler.get_last_lr()[0]
             except AssertionError as e:
                 if "need to call step" in str(e):
-                    logger.warning(
+                    logging.warning(
                         "tried to get lr value before scheduler/optimizer started stepping, returning lr=0"
                     )
                     last_lr = 0
@@ -1613,16 +1594,16 @@ class Trainer:
             ) == set(self.model._keys_to_ignore_on_save):
                 self.model.tie_weights()
             else:
-                logger.warning(
+                logging.warning(
                     f"There were missing keys in the checkpoint model loaded: {load_result.missing_keys}."
                 )
         if len(load_result.unexpected_keys) != 0:
-            logger.warning(
+            logging.warning(
                 f"There were unexpected keys in the checkpoint model loaded: {load_result.unexpected_keys}."
             )
 
     def _load_best_model(self):
-        logger.info(
+        logging.info(
             f"Loading best model from {self.state.best_model_checkpoint} (score: {self.state.best_metric})."
         )
 
@@ -1632,7 +1613,7 @@ class Trainer:
             state_dict = torch.load(best_model_path, map_location="cpu")
             self._load_state_dict_in_model(state_dict)
         else:
-            logger.warning(
+            logging.warning(
                 f"Could not locate the best model at {best_model_path}, if you are running a distributed training "
                 "on multiple nodes, you should activate `--save_on_each_node`."
             )
@@ -1643,7 +1624,7 @@ class Trainer:
                 f"Can't find a valid checkpoint at {resume_from_checkpoint}"
             )
 
-        logger.info(f"Loading model from {resume_from_checkpoint}).")
+        logging.info(f"Loading model from {resume_from_checkpoint}).")
 
         if os.path.isfile(os.path.join(resume_from_checkpoint, CONFIG_NAME)):
             config = PretrainedConfig.from_json_file(
@@ -1651,7 +1632,7 @@ class Trainer:
             )
             checkpoint_version = config.transformers_version
             if checkpoint_version is not None and checkpoint_version != __version__:
-                logger.warning(
+                logging.warning(
                     f"You are resuming training from a checkpoint trained with {checkpoint_version} of "
                     f"Transformers but your current version is {__version__}. This is not recommended and could "
                     "yield to errors or unwanted behaviors."
@@ -1728,13 +1709,14 @@ class Trainer:
         )
         checkpoints_to_be_deleted = checkpoints_sorted[:number_of_checkpoints_to_delete]
         for checkpoint in checkpoints_to_be_deleted:
-            logger.info(
+            logging.info(
                 f"Deleting older checkpoint [{checkpoint}] due to args.save_total_limit"
             )
             shutil.rmtree(checkpoint)
 
     def _move_model_to_device(self, model, device):
         model.to(device)
+        # self.model.to(device)
 
     def _remove_unused_columns(
         self, dataset: "datasets.Dataset", description: Optional[str] = None
@@ -1753,7 +1735,7 @@ class Trainer:
             dset_description = (
                 "" if description is None else f"in the {description} set "
             )
-            logger.info(
+            logging.info(
                 f"The following columns {dset_description} don't have a corresponding argument in "
                 f"`{self.model.__class__.__name__}.forward` and have been ignored: {', '.join(ignored_columns)}."
                 f" If {', '.join(ignored_columns)} are not expected by `{self.model.__class__.__name__}.forward`, "
@@ -2012,12 +1994,13 @@ class Trainer:
         Return:
             `torch.Tensor`: The tensor with training loss on this batch.
         """
-        model.train()
+        #model.train()
         inputs = self._prepare_inputs(inputs)
-
+        print("=========================", 5.3)
         with self.autocast_smart_context_manager():
             loss = self.compute_loss(model, inputs)
 
+        print("=========================", 5.4)
         if self.args.n_gpu > 1:
             loss = loss.mean()  # mean() to average on multi-gpu parallel training
 
@@ -2026,11 +2009,12 @@ class Trainer:
             # deepspeed handles loss scaling by gradient_accumulation_steps in its `backward`
             loss = loss / self.args.gradient_accumulation_steps
 
+        print("=========================", 5.5, self.do_grad_scaling)
         if self.do_grad_scaling:  # TODO check do_grad_scaling is ok with oslo parallel
             self.scaler.scale(loss).backward()
         else:
             loss.backward()
-
+        print("=========================", 5.6)
         return loss.detach()
 
     def _prepare_input(
@@ -2085,11 +2069,15 @@ class Trainer:
 
         Subclass and override for custom behavior.
         """
+        print("======================================", 5.31)
         if self.label_smoother is not None and "labels" in inputs:
             labels = inputs.pop("labels")
         else:
             labels = None
+        # print("======================================", 5.32, inputs)
+        # print(model)
         outputs = model(**inputs)
+        print("======================================", 5.33)
         # Save past state if it exists
         # TODO: this needs to be fixed and made cleaner later.
         if self.args.past_index >= 0:
@@ -2104,40 +2092,47 @@ class Trainer:
         return (loss, outputs) if return_outputs else loss
 
     def _wrap_model(self, model_wrappers: List, training: bool = True):
-        model = self.model
         if not training:
             return self.model
-
         if unwrap_model(self.model) is not self.model:
             return self.model
 
+        model = self.model
         # Distributed training (should be after apex fp16 initialization)
         if self.parallel_context is not None:
             for wrapper in model_wrappers:
-                if isinstance(wrapper, TensorParallel):
+                # logging.info(f"Model wrapping with wrapper: {wrapper}")
+
+                if wrapper == TensorParallel:
+                    logging.info(self.args.oslo_config)
                     model = wrapper(
-                        self.model,
-                        self.parallel_context,
+                        model,
+                        parallel_context=self.parallel_context,
                         **self.args.oslo_config.tensor_parallelism["params"],
                     )
-                elif isinstance(wrapper, PipelineParallel):
+                    logging.info(f"Model wrapping with {wrapper}")
+                elif wrapper == PipelineParallel:
                     model = wrapper(
-                        self.model,
-                        self.parallel_context,
+                        model,
+                        parallel_context=self.parallel_context,
                         **self.args.oslo_config.pipeline_parallelism["params"],
                     )
-                elif isinstance(wrapper, SequenceDataParallel):
+                    logging.info(f"Model wrapping with {wrapper}")
+                elif wrapper == SequenceDataParallel:
                     model = wrapper(
-                        self.model,
-                        self.parallel_context,
+                        model,
+                        parallel_context=self.parallel_context,
                         **self.args.oslo_config.sequence_parallelism["params"],
                     )
-                elif type(wrapper) in [DistributedDataParallel, ShardedDataParallel, FullyShardedDataParallel]:
+                    logging.info(f"Model wrapping with {wrapper}")
+                elif wrapper in [DistributedDataParallel, ShardedDataParallel, FullyShardedDataParallel]:
+                    # model = model.to()
                     model = wrapper(
-                        self.model,
-                        self.parallel_context,
+                        model,
+                        parallel_context=self.parallel_context,
                         **self.args.oslo_config.data_parallelism["params"],
                     )
+                    logging.info(f"Model wrapping with {wrapper}")
 
             allocate_params(model, self.parallel_context)
         return model
@@ -2177,7 +2172,7 @@ class Trainer:
         # If we are executing this function, we are the process zero, so we don't check for that.
         output_dir = output_dir if output_dir is not None else self.args.output_dir
         os.makedirs(output_dir, exist_ok=True)
-        logger.info(f"Saving model checkpoint to {output_dir}")
+        logging.info(f"Saving model checkpoint to {output_dir}")
         # Save a trained model and configuration using `save_pretrained()`.
         # They can then be reloaded using `from_pretrained()`
         if not isinstance(self.model, PreTrainedModel):
@@ -2188,7 +2183,7 @@ class Trainer:
                     output_dir, state_dict=state_dict
                 )
             else:
-                logger.info(
+                logging.info(
                     "Trainer.model is not a `PreTrainedModel`, only saving its state dict."
                 )
                 if state_dict is None:

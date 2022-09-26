@@ -110,9 +110,9 @@ class ShardedDataParallel(ParallelWrapper):
         super().__init__()
 
         # This field needs to be exposed to insure interface parity with DDP
-        self.module = module
-        self.parallel_context = get_parallel_context(module, parallel_context)
 
+        self.parallel_context = get_parallel_context(module, parallel_context)
+        self.module = module
         self._sharded_optimizers = (
             [sharded_optimizer]
             if not isinstance(sharded_optimizer, list)

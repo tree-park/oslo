@@ -9,21 +9,29 @@ from oslo.transformers.tasks.data_sequence_classification import (
     ProcessorForSequenceClassification,
     DataCollatorForSequenceClassification,
 )
+import logging
+logging.basicConfig(level=logging.INFO)
+
+torch.set_printoptions(sci_mode=False)
 
 os.environ["WANDB_DISABLED"] = "true"
 
 oslo_init_dict_form = {
-    "model_parallelism": {
-        "pipeline_parallel_size": 2,
-        "tensor_parallel_size": 2,
-        "tensor_parallel_mode": "1d",
+    "data_parallelism": {
+        "enable": False,
+        "parallel_size": 1,
+        "zero_stage": 2,
     },
-    "activation_checkpointing": {
-        "partitioned_checkpointing": False,
-        "contiguous_checkpointing": False,
+    "tensor_parallelism": {
+        "enable": True,
+        "parallel_size": 4,
+        "parallel_mode": "1d",
     },
-    "lazy_initialization": False,
-    "backend": "nccl",
+    "sequence_parallelism": {
+        "enable": False,
+        "parallel_size": 4
+    }
+
 }
 
 model = BertForSequenceClassification.from_pretrained("bert-base-uncased")
@@ -49,15 +57,15 @@ data_collator = DataCollatorForSequenceClassification(processor)
 
 args = TrainingArguments(
     output_dir="output",
-    evaluation_strategy="steps",
-    eval_steps=500,
+    evaluation_strategy="no",
+    # eval_steps=500,
     per_device_train_batch_size=8,
     per_device_eval_batch_size=8,
     num_train_epochs=2,
     seed=0,
     optim="adam",
-    load_best_model_at_end=True,
-    oslo_user_config=oslo_init_dict_form,
+    # load_best_model_at_end=True,
+    oslo_config_path_or_dict=oslo_init_dict_form,
 )
 # print(args)
 trainer = Trainer(
