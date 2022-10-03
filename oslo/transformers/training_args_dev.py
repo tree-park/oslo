@@ -1,4 +1,5 @@
 import os
+import math
 from dataclasses import asdict, dataclass, field
 from typing import List, Optional, Union
 from enum import Enum
@@ -71,6 +72,11 @@ class TrainingArguments:
     eval_steps (`int`, *optional*):
         Number of update steps between two evaluations if `evaluation_strategy="steps"`. Will default to the same
         value as `logging_steps` if not set.
+    past_index (`int`, *optional*, defaults to -1): # TODO for transformerxl/XLNet
+        Some models like [TransformerXL](../model_doc/transformerxl) or [XLNet](../model_doc/xlnet) can make use of
+        the past hidden states for their predictions. If this argument is set to a positive int, the `Trainer` will
+        use the corresponding output (usually index 2) as the past state and feed it to the model at the next
+        training step under the keyword argument `mems`.
     load_best_model_at_end (`bool`, *optional*, defaults to `False`):
         Whether or not to load the best model found during training at the end of training.
 
@@ -227,6 +233,127 @@ class TrainingArguments:
         if self.local_rank != -1:
             return self.local_rank
         return 0
+
+    @property
+    def train_batch_size(self) -> int:
+        """
+        The actual batch size for training (may differ from `per_gpu_train_batch_size` in distributed training).
+        """
+        per_device_batch_size = self.per_device_train_batch_size
+        train_batch_size = per_device_batch_size * max(1, self.n_gpu)
+        return train_batch_size
+
+    @property
+    def eval_batch_size(self) -> int:
+        """
+        The actual batch size for evaluation (may differ from `per_gpu_eval_batch_size` in distributed training).
+        """
+        per_device_batch_size = self.per_device_eval_batch_size
+        eval_batch_size = per_device_batch_size * max(1, self.n_gpu)
+        return eval_batch_size
+
+    def get_warmup_steps(self, num_training_steps: int):
+        """
+        Get number of steps used for a linear warmup.
+        """
+        warmup_steps = (
+            self.warmup_steps if self.warmup_steps > 0 else math.ceil(num_training_steps * self.warmup_ratio)
+        )
+        return warmup_steps
+
+    # @cached_property
+    @property
+    def _setup_devices(self) -> torch.device:
+        # TODO
+        # logger.info("PyTorch: setting up devices")
+        # if torch.distributed.is_available() and torch.distributed.is_initialized() and self.local_rank == -1:
+        #     logger.warning(
+        #         "torch.distributed process group is initialized, but local_rank == -1. "
+        #         "In order to use Torch DDP, launch your script with `python -m torch.distributed.launch"
+        #     )
+        # if self.no_cuda:
+        #     device = torch.device("cpu")
+        #     self._n_gpu = 0
+        #     if self.local_rank != -1 and not torch.distributed.is_initialized():
+        #         # Initializes distributed backend for cpu
+        #         if self.xpu_backend not in ("mpi", "ccl"):
+        #             raise ValueError(
+        #                 "CPU distributed training backend is not properly set. "
+        #                 "Please set '--xpu_backend' to either 'mpi' or 'ccl'."
+        #             )
+        #         torch.distributed.init_process_group(backend=self.xpu_backend)
+        # elif is_torch_tpu_available():
+        #     device = xm.xla_device()
+        #     self._n_gpu = 0
+        # elif is_sagemaker_mp_enabled():
+        #     local_rank = smp.local_rank()
+        #     device = torch.device("cuda", local_rank)
+        #     self._n_gpu = 1
+        # elif is_sagemaker_dp_enabled():
+        #     dist.init_process_group(backend="smddp")
+        #     self.local_rank = int(os.getenv("SMDATAPARALLEL_LOCAL_RANK"))
+        #     device = torch.device("cuda", self.local_rank)
+        #     self._n_gpu = 1
+        # elif self.deepspeed:
+        #     # deepspeed inits torch.distributed internally
+        #     from .deepspeed import is_deepspeed_available
+        #
+        #     if not is_deepspeed_available():
+        #         raise ImportError("--deepspeed requires deepspeed: `pip install deepspeed`.")
+        #     import deepspeed
+        #
+        #     deepspeed.init_distributed()
+        #
+        #     # workaround for setups like notebooks where the launcher can't be used,
+        #     # but deepspeed requires a dist env.
+        #     # env LOCAL_RANK could be set manually by the user, or via init_distributed if mpi4py is installed
+        #     self.local_rank = int(os.environ.get("LOCAL_RANK", "-1"))
+        #
+        #     device = torch.device("cuda", self.local_rank)
+        #     self._n_gpu = 1
+        # elif self.local_rank == -1:
+        #     # if n_gpu is > 1 we'll use nn.DataParallel.
+        #     # If you only want to use a specific subset of GPUs use `CUDA_VISIBLE_DEVICES=0`
+        #     # Explicitly set CUDA to the first (index 0) CUDA device, otherwise `set_device` will
+        #     # trigger an error that a device index is missing. Index 0 takes into account the
+        #     # GPUs available in the environment, so `CUDA_VISIBLE_DEVICES=1,2` with `cuda:0`
+        #     # will use the first GPU in that env, i.e. GPU#1
+        #     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+        #     # Sometimes the line in the postinit has not been run before we end up here, so just checking we're not at
+        #     # the default value.
+        #     self._n_gpu = torch.cuda.device_count()
+        # else:
+        # Here, we'll use torch.distributed.
+        # Initializes the distributed backend which will take care of synchronizing nodes/GPUs
+        if not torch.distributed.is_initialized():
+            torch.distributed.init_process_group(backend="nccl")
+        device = torch.device("cuda", self.local_rank)
+        # self._n_gpu = 1
+        self._n_gpu = torch.cuda.device_count()
+        # TODO ?
+        # if device.type == "cuda":
+        #     torch.cuda.set_device(device)
+        return device
+
+    @property
+    def device(self) -> torch.device:
+        """
+        The device used by this process.
+        """
+        return self._setup_devices
+
+    @property
+    def n_gpu(self):
+        """
+        The number of GPUs used by this process.
+
+        Note:
+            This will only be greater than one when you have multiple GPUs available but are not using distributed
+            training. For distributed training, it will always be 1.
+        """
+        # Make sure `self._n_gpu` is properly setup.
+        _ = self._setup_devices
+        return self._n_gpu
 
 
 def get_batch_size(per_device_batch_size, n_gpu) -> int:

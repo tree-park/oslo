@@ -1,8 +1,12 @@
+import os
+import logging
 import torch
 import torch.nn as nn
-
-
+from typing import List
 from transformers.utils import ExplicitEnum
+
+
+logger = logging.get_logger(__name__)
 
 
 class SchedulerType(ExplicitEnum):
@@ -41,3 +45,20 @@ def unwrap_model(model: nn.Module) -> nn.Module:
         return unwrap_model(model.module)
     else:
         return model
+
+
+def log_dist(message: str,
+             rank: int = 0,
+             level: int = logging.INFO) -> None:
+    if rank == -1:
+        ranks = [i for i in range(int(os.environ["WORLD_SIZE"]))]
+    else:
+        ranks = [rank]
+    my_rank = int(os.environ.get("RANK", "0"))
+    if my_rank in ranks:
+        if level == logging.INFO:
+            logger.info(f'[Rank {my_rank}] {message}')
+        if level == logging.ERROR:
+            logger.error(f'[Rank {my_rank}] {message}')
+        if level == logging.DEBUG:
+            logger.debug(f'[Rank {my_rank}] {message}')
